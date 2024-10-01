@@ -4,3 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+raylib = "5.0.2"
+num-complex = "0.4"
+num-traits = "0.2"
+num-integer = "0.1"
+gtk = "0.17"
+libloading = "0.8"
+rsmpeg = "0.15.1"
+magic = "0.16.2"
+lazy_static = "1.5.0"
+rust_math = "0.3.7"
+
