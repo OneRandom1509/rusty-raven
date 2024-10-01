@@ -10,7 +10,7 @@ use num_integer::*;
 use raylib::ffi::{
     CheckCollisionPointRec, Color, ColorAlpha, DrawCircle, DrawCircleGradient, DrawCircleLines,
     DrawLineEx, DrawRectangle, DrawRectangleLines, DrawTextEx, Font, GetMousePosition, Music,
-    Rectangle, Vector2, InitWindow, SetTargetFPS, InitAudioDevice, LoadMusicStream, SetMusicVolume, PlayMusicStream, AttachAudioStreamProcessor, LoadFontEx, LoadRenderTexture, WindowShouldClose, UpdateMusicStream, IsKeyPressed, IsMusicStreamPlaying, PauseMusicStream, ResumeMusicStream, IsFileDropped, LoadDroppedFiles, StopMusicStream, UnloadMusicStream, IsMouseButtonPressed, BeginDrawing, ClearBackground, BeginTextureMode, EndTextureMode, DrawTextureRec, GetMusicTimeLength, GetMusicTimePlayed, EndDrawing, CloseAudioDevice, CloseWindow, FilePathList };
+    Rectangle, Vector2, InitWindow, SetTargetFPS, InitAudioDevice, LoadMusicStream, SetMusicVolume, PlayMusicStream, AttachAudioStreamProcessor, LoadFontEx, LoadRenderTexture, WindowShouldClose, UpdateMusicStream, IsKeyPressed, IsMusicStreamPlaying, PauseMusicStream, ResumeMusicStream, IsFileDropped, LoadDroppedFiles, StopMusicStream, UnloadMusicStream, IsMouseButtonPressed, BeginDrawing, ClearBackground, BeginTextureMode, EndTextureMode, DrawTextureRec, GetMusicTimeLength, GetMusicTimePlayed, EndDrawing, CloseAudioDevice, CloseWindow, FilePathList, KeyboardKey::*, UnloadDroppedFiles};
 use raylib::prelude::*;
 use rsmpeg::ffi::{
     av_dict_get, avformat_close_input, avformat_find_stream_info, avformat_open_input,
@@ -158,7 +158,7 @@ const helpCommands: [&str; 9] = [
 ];
 
 fn fft(inp: &[f32], stride: usize, out: &mut [Complex32], n: usize) {
-    assert!(n > 0);
+    std::assert!(n > 0);
 
     if n == 1 {
         out[0] = Complex32::new(inp[0], 0.0);
@@ -606,7 +606,7 @@ fn main() {
     const screenWidth: i32 = 1280;
     const screenHeight: i32 = 720;
 
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 {
         if is_song_file(&args[1]) {
@@ -623,13 +623,13 @@ fn main() {
         return;
     }
 
-    InitWindow(screenWidth, screenHeight, "Rusty rAVen");
+    InitWindow(screenWidth, screenHeight, CString::new("Rusty rAVen").expect("CString new failed").as_ptr());
     SetTargetFPS(60);
     InitAudioDevice();
 
-    let mut music: Music = LoadMusicStream(selected_song);
-    assert(music.stream.sampleSize == 32);
-    assert(music.stream.channels == 2);
+    let mut music: Music = LoadMusicStream(CString::new(selected_song).expect("CString new failed").as_ptr());
+    std::assert!(music.stream.sampleSize == 32);
+    std::assert!(music.stream.channels == 2);
 
     let mut currentVolume: f32 = 0.8;
     let mut lastVolume: f32 = currentVolume;
@@ -639,12 +639,12 @@ fn main() {
     PlayMusicStream(music);
     AttachAudioStreamProcessor(music.stream, callback);
 
-    Font font = LoadFontEx("resources/Roboto-Regular.ttf", 20, std::ptr::null(), 0);
+    let font: Font = LoadFontEx("resources/Roboto-Regular.ttf", 20, std::ptr::null(), 0);
 
     let mut overlay: RenderTexture2D = LoadRenderTexture(screenWidth, screenHeight);
 
-    let infoButton = Rectangle { x: screenWidth-100, y: 20, width: 80, height: 40 };
-    let helpButton = Rectangle { x: screenWidth-200, y: 80, width: 60, height: 30 };
+    let infoButton = Rectangle { x: (screenWidth-100) as f32, y: 20.0, width: 80.0, height: 40.0 };
+    let helpButton = Rectangle { x: (screenWidth-200) as f32, y: 80.0, width: 60.0, height: 30.0 };
     let mut showInfo: bool = false;
     let mut showHelp: bool = false;
 
@@ -652,7 +652,7 @@ fn main() {
         UpdateMusicStream(music);
 
         if IsKeyPressed(KEY_SPACE){
-            if isMusicStreamPlaying(music){
+            if IsMusicStreamPlaying(music){
                 PauseMusicStream(music);
             }
             else{
@@ -670,11 +670,11 @@ fn main() {
             println!("File Dropped\n");
 
             if droppedFiles.count > 0 {
-                let file_path = droppedFiles.paths[0];
-                println!("{}", droppedFiles.paths[0]);
+                let file_path = droppedFiles.paths.wrapping_add(0);
+                println!("{}", String::from(droppedFiles.paths.wrapping_add(0)));
                 StopMusicStream(music);
                 UnloadMusicStream(music);
-                music = LoadMusicStream(file_path);
+                music = LoadMusicStream(CString::new(file_path).expect("CString new failed").as_ptr());
                 PlayMusicStream(music);
                 SetMusicVolume(music, currentVolume);
                 AttachAudioStreamProcessor(music.stream, callback);
@@ -682,7 +682,7 @@ fn main() {
             UnloadDroppedFiles(droppedFiles);
         }
 
-        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsMouseOverRectangle(infoButton){
+        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && isMouseOverRectangle(infoButton){
             showInfo = !showInfo;
         }
 
@@ -691,7 +691,7 @@ fn main() {
             OpenFileDialog();
             if is_song_file(&selected_song){
                 UnloadMusicStream(music);
-                music = LoadMusicStream(selected_song);
+                music = LoadMusicStream(CString::new(selected_song).expect("CString new failed").as_ptr());
                 PlayMusicStream(music);
                 SetMusicVolume(music, currentVolume);
                 AttachAudioStreamProcessor(music.stream, callback);
@@ -702,7 +702,7 @@ fn main() {
             }
         }
 
-        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsMouseOverRectangle(helpButton){
+        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && isMouseOverRectangle(helpButton){
             showHelp = !showHelp;
         }
 
@@ -745,10 +745,10 @@ fn main() {
         BeginDrawing();
         ClearBackground(BLACK);
 
-        BeginTextureMode(overlay);
+        BeginTextureMode(*overlay);
         DrawRectangle(0, 0, screenWidth, screenHeight, ColorAlpha(GRAY, 0.2));
         EndTextureMode();
-        DrawTextureRec(overlay.texture, Rectangle { x: 0, y: 0, width: screenWidth, height: screenHeight }, Vector2 { x: 0, y: 0 }, WHITE);
+        DrawTextureRec(overlay.texture, Rectangle { x: 0.0, y: 0.0, width: screenWidth as f32, height: screenHeight as f32}, Vector2 { x: 0.0, y: 0.0 }, WHITE);
 
         let mut m: usize = 0;
         let mut step: f32 = 1.06;
