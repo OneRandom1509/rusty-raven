@@ -8,13 +8,18 @@ use magic::*;
 use num_complex::*;
 use num_integer::*;
 use raylib::ffi::{
-    CheckCollisionPointRec, Color, ColorAlpha, DrawCircle, DrawCircleLines, DrawLineEx,
-    DrawRectangle, DrawRectangleLines, GetMousePosition, Rectangle, Vector2,
-};
+    CheckCollisionPointRec, Color, ColorAlpha, DrawCircle, DrawCircleGradient, DrawCircleLines,
+    DrawLineEx, DrawRectangle, DrawRectangleLines, DrawTextEx, Font, GetMousePosition, Music,
+    Rectangle, Vector2, InitWindow, SetTargetFPS, InitAudioDevice, LoadMusicStream, SetMusicVolume, PlayMusicStream, AttachAudioStreamProcessor, LoadFontEx, LoadRenderTexture, WindowShouldClose, UpdateMusicStream, IsKeyPressed, IsMusicStreamPlaying, PauseMusicStream, ResumeMusicStream, IsFileDropped, LoadDroppedFiles, StopMusicStream, UnloadMusicStream, IsMouseButtonPressed, BeginDrawing, ClearBackground, BeginTextureMode, EndTextureMode, DrawTextureRec, GetMusicTimeLength, GetMusicTimePlayed, EndDrawing, CloseAudioDevice, CloseWindow, FilePathList };
 use raylib::prelude::*;
+use rsmpeg::ffi::{
+    av_dict_get, avformat_close_input, avformat_find_stream_info, avformat_open_input,
+    AVDictionaryEntry, AVFormatContext,
+};
 use rust_math::trigonometry::deg2rad;
 use std::f32::consts::PI;
 use std::f32::*;
+use std::ffi::CString;
 use std::mem::size_of;
 
 fn array_len<T>(xs: &[T]) -> usize {
@@ -436,12 +441,406 @@ fn handleVisualization(cell_width: f32, screenHeight: i32, screenWidth: i32, m: 
     }
 }
 
-fn main() {
-    let (mut rl, thread) = raylib::init().size(640, 480).title("Hello, World").build();
+// TODO: Draw help box
 
-    while !rl.window_should_close() {
-        let mut d = rl.begin_drawing(&thread);
-        d.clear_background(raylib::prelude::Color::WHITE);
-        d.draw_text("Hello, world!", 12, 12, 20, raylib::prelude::Color::BLACK);
+fn limit_text(dest: &mut String, src: &str, max_length: usize) {
+    if src.len() > max_length {
+        dest.clear();
+        dest.push_str(&src[..max_length - 3]);
+        dest.push_str("...");
+    } else {
+        dest.clear();
+        dest.push_str(src);
     }
+}
+
+fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
+    unsafe {
+        let boxWidth = 400;
+        let padding = 40.0;
+        let charLimit = 30;
+
+        // Draw the outer glowing rectangle for space-themed effect
+        DrawRectangle(15, 95, 410, 210, GRUVBOX_BLUE);
+        DrawRectangle(20, 100, boxWidth, 200, ColorAlpha(GRUVBOX_BG, 0.85));
+
+        // Draw the title with a Gruvbox-style glowing effect
+        DrawTextEx(
+            font,
+            CString::new("Track Info")
+                .expect("CString new failed")
+                .as_ptr(),
+            Vector2 {
+                x: padding,
+                y: 110.0,
+            },
+            24.0,
+            2.0,
+            GRUVBOX_YELLOW,
+        );
+
+        let mut title = String::new();
+        let mut artist = String::new();
+        let mut album = String::new();
+
+        limit_text(
+            &mut title,
+            if !metadata.title.is_empty() {
+                &metadata.title
+            } else {
+                "Unknown"
+            },
+            charLimit,
+        );
+        limit_text(
+            &mut artist,
+            if !metadata.artist.is_empty() {
+                &metadata.artist
+            } else {
+                "Unknown"
+            },
+            charLimit,
+        );
+        limit_text(
+            &mut album,
+            if !metadata.album.is_empty() {
+                &metadata.album
+            } else {
+                "Unknown"
+            },
+            charLimit,
+        );
+
+        let info_text = format!("Title: {}\nArtist: {}\nAlbum: {}\nSample Rate: {} Hz\nChannels: {}\nSample Size: {}-bit\nDuration: {:.2} sec", title, artist, album, music.stream.sampleRate, music.stream.channels, music.stream.sampleSize, metadata.duration);
+
+        let c_info_text = CString::new(info_text).expect("CString::new failed");
+
+        DrawTextEx(
+            font,
+            c_info_text.as_ptr(),
+            Vector2 {
+                x: padding,
+                y: 150.0,
+            },
+            20.0,
+            1.0,
+            GRUVBOX_FG,
+        );
+
+        // TODO: Stars
+
+        // Glowing nebula
+        DrawCircleGradient(
+            380,
+            280,
+            50.0,
+            ColorAlpha(GRUVBOX_AQUA, 0.2),
+            ColorAlpha(GRUVBOX_AQUA, 0.0),
+        );
+    }
+}
+
+//fn extract_metadata(filename: String, metadata: &mut Metadata) {
+//    let mut fmt_ctx: AVFormatContext = std::ptr::null();
+//
+//    if avformat_open_input(&mut fmt_ctx, filename, NULL, NULL) < 0{{
+//        println!("Could not open file {}\n", filename);
+//    }
+//
+    // Retrieve stream information
+//    if avformat_find_stream_info(&mut fmt_ctx, &mut std::ptr::null()) < 0 {
+//        println!("Could not find stream info\n");
+//        avformat_close_input(&mut fmt_ctx);
+//        return;
+//    }
+
+ //   let mut tag: AVDictionaryEntry = std::ptr::null();
+
+    // Extract metadata - title, artist, album
+
+ //   if tag
+//        == av_dict_get(
+//            &fmt_ctx.metadata,
+//            CString::new("title").expect("CString new failed").as_ptr(),
+ //           std::ptr::null,
+//            0,
+//        )
+//    {
+//        metadata.title = String::from(CString::from_ptr(tag.value).to_string_lossy().into_owned());
+//    } else {
+//        metadata.title = String::from("Unknown Title");
+//    }
+
+//    if tag
+//        == av_dict_get(
+//            &fmt_ctx.metadata,
+//            CString::new("artist").expect("CString new failed").as_ptr(),
+ //           std::ptr::null(),
+ //           0,
+ //       )
+//    {
+//        metadata.artist = String::from(CString::from_ptr(tag.value).to_string_lossy().into_owned());
+//    } else {
+ //       metadata.artist = String::from("Unknown Artist");
+  //  }
+
+//    if tag
+//        == av_dict_get(
+//            &fmt_ctx.metadata,
+//            CString::new("album").expect("CString new failed").as_ptr(),
+//            std::ptr::null(),
+//            0,
+//        )
+//    {
+//        metadata.album = String::from(CString::from_ptr(tag.value).to_string_lossy().into_owned());
+//    } else {
+//        metadata.album = String::from("Unknown Album");
+//    }
+
+ //   metadata.duration = fmt_ctx.duration as f32 / 1000.0;
+
+//    avformat_close_input(*mut *mut fmt_ctx);
+//}
+
+fn main() {
+    const screenWidth: i32 = 1280;
+    const screenHeight: i32 = 720;
+
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() > 1 {
+        if is_song_file(&args[1]) {
+        selected_song = args[1].clone();
+        println!("Selected song {}\n", selected_song);
+    }
+        else{
+            println!("Invalid file format. Please select a valid audio file\n");
+            return;
+        }
+    }
+    else{
+        println!("No file selected. Please select a valid audio file\n");
+        return;
+    }
+
+    InitWindow(screenWidth, screenHeight, "Rusty rAVen");
+    SetTargetFPS(60);
+    InitAudioDevice();
+
+    let mut music: Music = LoadMusicStream(selected_song);
+    assert(music.stream.sampleSize == 32);
+    assert(music.stream.channels == 2);
+
+    let mut currentVolume: f32 = 0.8;
+    let mut lastVolume: f32 = currentVolume;
+    let mut isMuted: bool = false;
+
+    SetMusicVolume(music, currentVolume);
+    PlayMusicStream(music);
+    AttachAudioStreamProcessor(music.stream, callback);
+
+    Font font = LoadFontEx("resources/Roboto-Regular.ttf", 20, std::ptr::null(), 0);
+
+    let mut overlay: RenderTexture2D = LoadRenderTexture(screenWidth, screenHeight);
+
+    let infoButton = Rectangle { x: screenWidth-100, y: 20, width: 80, height: 40 };
+    let helpButton = Rectangle { x: screenWidth-200, y: 80, width: 60, height: 30 };
+    let mut showInfo: bool = false;
+    let mut showHelp: bool = false;
+
+    while(!WindowShouldClose()){
+        UpdateMusicStream(music);
+
+        if IsKeyPressed(KEY_SPACE){
+            if isMusicStreamPlaying(music){
+                PauseMusicStream(music);
+            }
+            else{
+                ResumeMusicStream(music);
+            }
+        }
+
+        if IsKeyPressed(KEY_Q){
+            break;
+        }
+
+        if IsFileDropped(){
+            PauseMusicStream(music);
+            let droppedFiles: FilePathList = LoadDroppedFiles();
+            println!("File Dropped\n");
+
+            if droppedFiles.count > 0 {
+                let file_path = droppedFiles.paths[0];
+                println!("{}", droppedFiles.paths[0]);
+                StopMusicStream(music);
+                UnloadMusicStream(music);
+                music = LoadMusicStream(file_path);
+                PlayMusicStream(music);
+                SetMusicVolume(music, currentVolume);
+                AttachAudioStreamProcessor(music.stream, callback);
+            }
+            UnloadDroppedFiles(droppedFiles);
+        }
+
+        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsMouseOverRectangle(infoButton){
+            showInfo = !showInfo;
+        }
+
+        if IsKeyPressed(KEY_F){
+            PauseMusicStream(music);
+            OpenFileDialog();
+            if is_song_file(&selected_song){
+                UnloadMusicStream(music);
+                music = LoadMusicStream(selected_song);
+                PlayMusicStream(music);
+                SetMusicVolume(music, currentVolume);
+                AttachAudioStreamProcessor(music.stream, callback);
+            }
+            else{
+                println!("Invalid file format. Please select a valid audio file\n");
+                ResumeMusicStream(music);
+            }
+        }
+
+        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsMouseOverRectangle(helpButton){
+            showHelp = !showHelp;
+        }
+
+        if IsKeyPressed(KEY_UP){
+            currentVolume += 0.1;
+            if currentVolume > 1.0{
+                currentVolume = 1.0;
+            }
+            SetMusicVolume(music, currentVolume);
+            isMuted = false;
+        }
+        
+        if IsKeyPressed(KEY_DOWN){
+            currentVolume -= 0.1;
+            if currentVolume < 0.0{
+                currentVolume = 0.0;
+            }
+            SetMusicVolume(music, currentVolume);
+            isMuted = false;
+        }
+
+        if IsKeyPressed(KEY_V){
+            SwitchVizualizationModeForward();
+        }
+        
+        if IsKeyPressed(KEY_B){
+            SwitchVizualizationModeBackward();
+        }
+        
+        if IsKeyPressed(KEY_M){
+            isMuted = !isMuted;
+            if isMuted{
+                SetMusicVolume(music, 0.0);
+            }
+            else{
+                SetMusicVolume(music, currentVolume);
+            }
+        }
+
+        BeginDrawing();
+        ClearBackground(BLACK);
+
+        BeginTextureMode(overlay);
+        DrawRectangle(0, 0, screenWidth, screenHeight, ColorAlpha(GRAY, 0.2));
+        EndTextureMode();
+        DrawTextureRec(overlay.texture, Rectangle { x: 0, y: 0, width: screenWidth, height: screenHeight }, Vector2 { x: 0, y: 0 }, WHITE);
+
+        let mut m: usize = 0;
+        let mut step: f32 = 1.06;
+
+        for (i = 20.0; i < N; i *= step){
+            m++;
+        }
+
+        let cell_width: f32 = screenWidth as f32 / m as f32;
+        handleVisualization(cell_width, screenHeight, screenWidth, m);
+        
+        let mainTitle = String::from("Rusty rAVen");
+        let titleSize: Vector2 = MeasureTextEx(font, CString::new(mainTitle).expect("CString new failed").as_ptr(), 40.0, 2.0);
+        DrawTextEx(font, CString::new(mainTitle).expect("CString new failed").as_ptr(), Vector2 { x: screenWidth/2 as f32 - titleSize.x/2.0, y: 20.0 }, 40.0, 2.0, GRUVBOX_BLUE);
+        
+        let mut totalDuration = GetMusicTimeLength(music) as f32;
+        let mut currentDuration = GetMusicTimePlayed(music) as f32;
+        let time_buffer = format!("{:.2} / {:.2} sec", current_time, total_duration);
+let details_size: Vector2 = measure_text_ex(&font, &time_buffer, 20.0, 1.0);
+DrawRectangle(0, screen_height - 40, screen_width, 40, ColorAlpha(Color::BLACK, 0.7));
+DrawTextEx(
+    &font,
+    &time_buffer,
+    Vector2 {
+        x: screen_width as f32 / 2.0 - details_size.x / 2.0,
+        y: screen_height as f32 - 30.0,
+    },
+    20.0,
+    1.0,
+    Color::WHITE,
+);
+
+// Draw play/pause status
+let status = if IsMusicStreamPlaying(&music) { "Playing" } else { "Paused" };
+DrawTextEx(
+    &font,
+    status,
+    Vector2::new(10.0, 10.0),
+    20.0,
+    1.0,
+    if IsMusicStreamPlaying(&music) {
+        GRUVBOX_GREEN
+    } else {
+        GRUVBOX_RED
+    },
+);
+
+// Draw volume level
+let volume_buffer = format!("Volume: {:.0}%", current_volume * 100.0);
+DrawTextEx(&font, &volume_buffer, Vector2::new(10.0, 40.0), 20.0, 1.0, GRUVBOX_AQUA);
+
+// Draw info button
+DrawRectangleRec(
+    info_button,
+    if show_info { GRUVBOX_ORANGE } else { GRUVBOX_PURPLE },
+);
+DrawTextEx(
+    &font,
+    "INFO",
+    Vector2::new(info_button.x + 10.0, info_button.y + 10.0),
+    20.0,
+    1.0,
+    Color::WHITE,
+);
+
+// Draw help button
+DrawRectangleRec(
+    help_button,
+    if show_help { GRUVBOX_ORANGE } else { GRUVBOX_PURPLE },
+);
+DrawTextEx(
+    &font,
+    "?",
+    Vector2::new(help_button.x + 15.0, help_button.y + 5.0),
+    20.0,
+    1.0,
+    Color::WHITE,
+);
+
+// Display info box if toggled
+if show_info {
+    DrawSpaceTheme(&font, &music, &metadata);
+}
+
+if show_help {
+    DrawHelpBox(show_help, &font, screen_height, screen_width);
+}
+        EndDrawing(); 
+    }
+
+    UnloadMusicStream(music);
+    CloseAudioDevice();
+    CloseWindow();
+
 }
