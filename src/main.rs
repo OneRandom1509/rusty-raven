@@ -7,10 +7,19 @@ use gtk::{FileChooserAction, FileChooserDialog, ResponseType, Window};
 use magic::*;
 use num_complex::*;
 use num_integer::*;
+use raylib::consts::MouseButton::*;
 use raylib::ffi::{
-    CheckCollisionPointRec, Color, ColorAlpha, DrawCircle, DrawCircleGradient, DrawCircleLines,
-    DrawLineEx, DrawRectangle, DrawRectangleLines, DrawTextEx, Font, GetMousePosition, Music,
-    Rectangle, Vector2, InitWindow, SetTargetFPS, InitAudioDevice, LoadMusicStream, SetMusicVolume, PlayMusicStream, AttachAudioStreamProcessor, LoadFontEx, LoadRenderTexture, WindowShouldClose, UpdateMusicStream, IsKeyPressed, IsMusicStreamPlaying, PauseMusicStream, ResumeMusicStream, IsFileDropped, LoadDroppedFiles, StopMusicStream, UnloadMusicStream, IsMouseButtonPressed, BeginDrawing, ClearBackground, BeginTextureMode, EndTextureMode, DrawTextureRec, GetMusicTimeLength, GetMusicTimePlayed, EndDrawing, CloseAudioDevice, CloseWindow, FilePathList, KeyboardKey::*, UnloadDroppedFiles};
+    AttachAudioStreamProcessor, BeginDrawing, BeginTextureMode, CheckCollisionPointRec,
+    ClearBackground, CloseAudioDevice, CloseWindow, Color, ColorAlpha, DrawCircle,
+    DrawCircleGradient, DrawCircleLines, DrawLineEx, DrawRectangle, DrawRectangleLines,
+    DrawRectangleRec, DrawTextEx, DrawTextureRec, EndDrawing, EndTextureMode, FilePathList, Font,
+    GetMousePosition, GetMusicTimeLength, GetMusicTimePlayed, InitAudioDevice, InitWindow,
+    IsFileDropped, IsKeyPressed, IsMouseButtonPressed, IsMusicStreamPlaying, KeyboardKey::*,
+    LoadDroppedFiles, LoadFontEx, LoadMusicStream, LoadRenderTexture, MeasureTextEx, Music,
+    PauseMusicStream, PlayMusicStream, Rectangle, RenderTexture2D, ResumeMusicStream,
+    SetMusicVolume, SetTargetFPS, StopMusicStream, UnloadDroppedFiles, UnloadMusicStream,
+    UpdateMusicStream, Vector2, WindowShouldClose,
+};
 use raylib::prelude::*;
 use rsmpeg::ffi::{
     av_dict_get, avformat_close_input, avformat_find_stream_info, avformat_open_input,
@@ -19,7 +28,7 @@ use rsmpeg::ffi::{
 use rust_math::trigonometry::deg2rad;
 use std::f32::consts::PI;
 use std::f32::*;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::mem::size_of;
 
 fn array_len<T>(xs: &[T]) -> usize {
@@ -91,6 +100,27 @@ pub const GRUVBOX_PURPLE: raylib::ffi::Color = raylib::ffi::Color {
     b: 155,
     a: 255,
 }; // #d3869b
+
+pub const WHITE: raylib::ffi::Color = raylib::ffi::Color {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+}; // #FFFFFF
+
+pub const BLACK: raylib::ffi::Color = raylib::ffi::Color {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+}; // #000000
+
+pub const GRAY: raylib::ffi::Color = raylib::ffi::Color {
+    r: 128,
+    g: 128,
+    b: 128,
+    a: 255,
+}; // #808080
 
 // This derive macro is used to implement the Copy, Clone and Debug traits for the enum
 #[derive(Copy, Clone, Debug)]
@@ -201,19 +231,38 @@ fn SwitchVizualizationModeBackward() {
     }
 }
 
-fn callback(bufferData: *mut [[f32; 2]], frames: usize) {
+unsafe extern "C" fn callback(bufferData: *mut std::ffi::c_void, frames: u32) {
     unsafe {
-        let fs: &mut [[f32; 2]] = &mut *bufferData;
+        // Cast bufferData to a raw pointer to f32 and then create a slice of it.
+        let data = bufferData as *mut f32;
 
-        for i in 0..frames {
+        // Number of elements (since we're dealing with stereo, it's frames * 2).
+        let num_samples = (frames * 2) as usize;
+
+        // Create a mutable slice from the raw pointer.
+        let fs: &mut [f32] = std::slice::from_raw_parts_mut(data, num_samples);
+
+        // Process the samples frame by frame (stereo).
+        for i in 0..frames as usize {
+            // For each frame, access left and right channels.
+            let left_channel = fs[i * 2]; // Left channel is at even index.
+            let right_channel = fs[i * 2 + 1]; // Right channel is at odd index.
+
+            // Copy the previous elements (shift left by 1) in the input array.
             input.copy_within(1..N, 0);
-            input[N - 1] = (fs[i][0] + fs[i][1]) / 2.0;
+
+            // Average the stereo channels and store it at the last position in the input buffer.
+            input[N - 1] = (left_channel + right_channel) / 2.0;
         }
 
+        // Perform FFT on the input.
         fft(&input, 1, &mut output, N);
 
+        // Initialize max_amp.
         max_amp = 0.0;
-        for i in 0..frames {
+
+        // Find the maximum amplitude from the FFT output.
+        for i in 0..frames as usize {
             let a: f32 = amp(output[i]);
             if a > max_amp {
                 max_amp = a;
@@ -337,13 +386,14 @@ fn handleVisualization(cell_width: f32, screenHeight: i32, screenWidth: i32, m: 
                         );
                     }
 
+                    // TODO: Fix this somehow``
                     VisualizationMode::WAVEFORM => {
                         let start: Vector2 = Vector2 {
                             x: (i as f32) * cell_width,
-                            y: center.y + ((screenHeight / 2) as f32 * amplitudes[i]),
+                            y: center.y + ((screenHeight / 2) as f32) * amplitudes[i],
                         };
                         let end: Vector2 = Vector2 {
-                            x: ((i + 1) as f32) * cell_width,
+                            x: (i as f32 + 1.0) * cell_width,
                             y: center.y + ((screenHeight / 2) as f32) * amplitudes[i + 1],
                         };
                         DrawLineEx(start, end, 2.0, GRUVBOX_BLUE);
@@ -411,16 +461,12 @@ fn handleVisualization(cell_width: f32, screenHeight: i32, screenWidth: i32, m: 
                         let end: Vector2 = Vector2 {
                             x: center.x
                                 + deg2rad(angle).cos()
-                                    * ((smoothedAmplitude
-                                        * outerRadius as f32
-                                        * amplitudeScale as f32)
-                                        as f32),
+                                    * (outerRadius as f32
+                                        + smoothedAmplitude as f32 * amplitudeScale as f32),
                             y: center.y
                                 + deg2rad(angle).sin()
-                                    * ((smoothedAmplitude
-                                        * outerRadius as f32
-                                        * amplitudeScale as f32)
-                                        as f32),
+                                    * (outerRadius as f32
+                                        + smoothedAmplitude as f32 * amplitudeScale as f32),
                         };
 
                         let mut barColor: raylib::ffi::Color = GRUVBOX_YELLOW;
@@ -443,6 +489,7 @@ fn handleVisualization(cell_width: f32, screenHeight: i32, screenWidth: i32, m: 
 
 // TODO: Draw help box
 
+// This is for metadata
 fn limit_text(dest: &mut String, src: &str, max_length: usize) {
     if src.len() > max_length {
         dest.clear();
@@ -454,7 +501,7 @@ fn limit_text(dest: &mut String, src: &str, max_length: usize) {
     }
 }
 
-fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
+fn DrawSpaceTheme(font: Font, music: Music) {
     unsafe {
         let boxWidth = 400;
         let padding = 40.0;
@@ -479,41 +526,47 @@ fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
             GRUVBOX_YELLOW,
         );
 
-        let mut title = String::new();
-        let mut artist = String::new();
-        let mut album = String::new();
+        // TODO: Display metadata
 
-        limit_text(
-            &mut title,
-            if !metadata.title.is_empty() {
-                &metadata.title
-            } else {
-                "Unknown"
-            },
-            charLimit,
-        );
-        limit_text(
-            &mut artist,
-            if !metadata.artist.is_empty() {
-                &metadata.artist
-            } else {
-                "Unknown"
-            },
-            charLimit,
-        );
-        limit_text(
-            &mut album,
-            if !metadata.album.is_empty() {
-                &metadata.album
-            } else {
-                "Unknown"
-            },
-            charLimit,
+        //let mut title = String::new();
+        //        let mut artist = String::new();
+        //        let mut album = String::new();
+
+        //        limit_text(
+        //            &mut title,
+        //            if !metadata.title.is_empty() {
+        //                &metadata.titlee
+        //            } else {
+        //                "Unknown"
+        //            },
+        //            charLimit,
+        //        );
+        //        limit_text(
+        //           &mut artist,
+        //            if !metadata.artist.is_empty() {
+        //                &metadata.artist
+        //            } else {
+        //                "Unknown"
+        //            },
+        //            charLimit,
+        //        );
+        //        limit_text(
+        //            &mut album,
+        //            if !metadata.album.is_empty() {
+        //                &metadata.album
+        //            } else {
+        //
+        //"Unknown"
+        //            },
+        //            charLimit,
+        //        );
+
+        let info_text = format!(
+            "Sample Rate: {} Hz\nChannels: {}\nSample Size: {}-bit",
+            music.stream.sampleRate, music.stream.channels, music.stream.sampleSize
         );
 
-        let info_text = format!("Title: {}\nArtist: {}\nAlbum: {}\nSample Rate: {} Hz\nChannels: {}\nSample Size: {}-bit\nDuration: {:.2} sec", title, artist, album, music.stream.sampleRate, music.stream.channels, music.stream.sampleSize, metadata.duration);
-
-        let c_info_text = CString::new(info_text).expect("CString::new failed");
+        let c_info_text = CString::new(info_text.clone()).expect("CString::new failed");
 
         DrawTextEx(
             font,
@@ -540,6 +593,8 @@ fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
     }
 }
 
+// TODO: Implement metadata extraction
+
 //fn extract_metadata(filename: String, metadata: &mut Metadata) {
 //    let mut fmt_ctx: AVFormatContext = std::ptr::null();
 //
@@ -547,22 +602,22 @@ fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
 //        println!("Could not open file {}\n", filename);
 //    }
 //
-    // Retrieve stream information
+// Retrieve stream information
 //    if avformat_find_stream_info(&mut fmt_ctx, &mut std::ptr::null()) < 0 {
 //        println!("Could not find stream info\n");
 //        avformat_close_input(&mut fmt_ctx);
 //        return;
 //    }
 
- //   let mut tag: AVDictionaryEntry = std::ptr::null();
+//   let mut tag: AVDictionaryEntry = std::ptr::null();
 
-    // Extract metadata - title, artist, album
+// Extract metadata - title, artist, album
 
- //   if tag
+//   if tag
 //        == av_dict_get(
 //            &fmt_ctx.metadata,
 //            CString::new("title").expect("CString new failed").as_ptr(),
- //           std::ptr::null,
+//           std::ptr::null,
 //            0,
 //        )
 //    {
@@ -575,14 +630,14 @@ fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
 //        == av_dict_get(
 //            &fmt_ctx.metadata,
 //            CString::new("artist").expect("CString new failed").as_ptr(),
- //           std::ptr::null(),
- //           0,
- //       )
+//           std::ptr::null(),
+//           0,
+//       )
 //    {
 //        metadata.artist = String::from(CString::from_ptr(tag.value).to_string_lossy().into_owned());
 //    } else {
- //       metadata.artist = String::from("Unknown Artist");
-  //  }
+//       metadata.artist = String::from("Unknown Artist");
+//  }
 
 //    if tag
 //        == av_dict_get(
@@ -595,252 +650,367 @@ fn DrawSpaceTheme(font: Font, music: Music, metadata: MusicMetadata) {
 //        metadata.album = String::from(CString::from_ptr(tag.value).to_string_lossy().into_owned());
 //    } else {
 //        metadata.album = String::from("Unknown Album");
-//    }
+//    }// Create a CString for the file path
 
- //   metadata.duration = fmt_ctx.duration as f32 / 1000.0;
+//   metadata.duration = fmt_ctx.duration as f32 / 1000.0;
 
 //    avformat_close_input(*mut *mut fmt_ctx);
 //}
 
 fn main() {
-    const screenWidth: i32 = 1280;
-    const screenHeight: i32 = 720;
+    unsafe {
+        const screenWidth: i32 = 1280;
+        const screenHeight: i32 = 720;
 
-    let args: Vec<String> = std::env::args().collect();
+        let args: Vec<String> = std::env::args().collect();
 
-    if args.len() > 1 {
-        if is_song_file(&args[1]) {
-        selected_song = args[1].clone();
-        println!("Selected song {}\n", selected_song);
-    }
-        else{
-            println!("Invalid file format. Please select a valid audio file\n");
+        if args.len() > 1 {
+            if is_song_file(&args[1]) {
+                selected_song = args[1].clone();
+                println!("Selected song {}\n", selected_song);
+            } else {
+                println!("Invalid file format. Please select a valid audio file\n");
+                return;
+            }
+        } else {
+            println!("No file selected. Please select a valid audio file\n");
             return;
         }
-    }
-    else{
-        println!("No file selected. Please select a valid audio file\n");
-        return;
-    }
 
-    InitWindow(screenWidth, screenHeight, CString::new("Rusty rAVen").expect("CString new failed").as_ptr());
-    SetTargetFPS(60);
-    InitAudioDevice();
+        InitWindow(
+            screenWidth,
+            screenHeight,
+            CString::new("Rusty rAVen")
+                .expect("CString new failed")
+                .as_ptr(),
+        );
+        SetTargetFPS(60);
+        InitAudioDevice();
 
-    let mut music: Music = LoadMusicStream(CString::new(selected_song).expect("CString new failed").as_ptr());
-    std::assert!(music.stream.sampleSize == 32);
-    std::assert!(music.stream.channels == 2);
+        let mut music: Music = LoadMusicStream(
+            CString::new(selected_song.clone())
+                .expect("CString new failed")
+                .as_ptr(),
+        );
+        std::assert!(music.stream.sampleSize == 32);
+        std::assert!(music.stream.channels == 2);
 
-    let mut currentVolume: f32 = 0.8;
-    let mut lastVolume: f32 = currentVolume;
-    let mut isMuted: bool = false;
+        let mut currentVolume: f32 = 0.8;
+        let mut lastVolume: f32 = currentVolume;
+        let mut isMuted: bool = false;
 
-    SetMusicVolume(music, currentVolume);
-    PlayMusicStream(music);
-    AttachAudioStreamProcessor(music.stream, callback);
+        SetMusicVolume(music, currentVolume);
+        PlayMusicStream(music);
+        AttachAudioStreamProcessor(music.stream, Some(callback));
 
-    let font: Font = LoadFontEx("resources/Roboto-Regular.ttf", 20, std::ptr::null(), 0);
+        // Create a CString for the file path
+        let mut font_path = CString::new("resources/fonts/monogram.ttf").expect("CString failed");
 
-    let mut overlay: RenderTexture2D = LoadRenderTexture(screenWidth, screenHeight);
+        // Load the font using the correct arguments
+        let mut font = unsafe {
+            LoadFontEx(
+                font_path.as_ptr(),   // Pass the C string pointer
+                24,                   // Font size
+                std::ptr::null_mut(), // No custom characters
+                0,                    // No custom glyph count
+            )
+        };
+        let mut overlay: RenderTexture2D = LoadRenderTexture(screenWidth, screenHeight);
 
-    let infoButton = Rectangle { x: (screenWidth-100) as f32, y: 20.0, width: 80.0, height: 40.0 };
-    let helpButton = Rectangle { x: (screenWidth-200) as f32, y: 80.0, width: 60.0, height: 30.0 };
-    let mut showInfo: bool = false;
-    let mut showHelp: bool = false;
+        let infoButton = Rectangle {
+            x: (screenWidth - 100) as f32,
+            y: 20.0,
+            width: 80.0,
+            height: 40.0,
+        };
+        let helpButton = Rectangle {
+            x: (screenWidth - 200) as f32,
+            y: 80.0,
+            width: 60.0,
+            height: 30.0,
+        };
+        let mut showInfo: bool = false;
+        let mut showHelp: bool = false;
 
-    while(!WindowShouldClose()){
-        UpdateMusicStream(music);
+        while (!WindowShouldClose()) {
+            UpdateMusicStream(music);
 
-        if IsKeyPressed(KEY_SPACE){
-            if IsMusicStreamPlaying(music){
+            if IsKeyPressed(KEY_SPACE as i32) {
+                if IsMusicStreamPlaying(music) {
+                    PauseMusicStream(music);
+                } else {
+                    ResumeMusicStream(music);
+                }
+            }
+
+            if IsKeyPressed(KEY_Q as i32) {
+                break;
+            }
+
+            if IsFileDropped() {
                 PauseMusicStream(music);
+                let droppedFiles: FilePathList = LoadDroppedFiles();
+                println!("File Dropped\n");
+
+                unsafe {
+                    let file_path_ptr = *droppedFiles.paths;
+                    let c_str = CStr::from_ptr(file_path_ptr.clone());
+                    let file_path = c_str.to_string_lossy().into_owned();
+
+                    println!("Dropped File Path: {}", file_path);
+
+                    // Load new music stream
+                    StopMusicStream(music);
+                    UnloadMusicStream(music);
+
+                    let c_string = CString::new(file_path.clone()).expect("CString failed");
+                    music = LoadMusicStream(c_string.as_ptr());
+
+                    PlayMusicStream(music);
+                    SetMusicVolume(music, currentVolume);
+
+                    // Attach the callback processor
+                    AttachAudioStreamProcessor(music.stream, Some(callback));
+                }
+                UnloadDroppedFiles(droppedFiles);
             }
-            else{
-                ResumeMusicStream(music);
+
+            if IsMouseButtonPressed(MOUSE_BUTTON_LEFT as i32) && isMouseOverRectangle(infoButton) {
+                showInfo = !showInfo;
             }
-        }
 
-        if IsKeyPressed(KEY_Q){
-            break;
-        }
+            if IsKeyPressed(KEY_F as i32) {
+                PauseMusicStream(music);
+                OpenFileDialog();
+                if is_song_file(&selected_song) {
+                    UnloadMusicStream(music);
+                    music = LoadMusicStream(
+                        CString::new(selected_song.clone())
+                            .expect("CString new failed")
+                            .as_ptr(),
+                    );
+                    PlayMusicStream(music);
+                    SetMusicVolume(music, currentVolume);
+                    AttachAudioStreamProcessor(music.stream, Some(callback));
+                } else {
+                    println!("Invalid file format. Please select a valid audio file\n");
+                    ResumeMusicStream(music);
+                }
+            }
 
-        if IsFileDropped(){
-            PauseMusicStream(music);
-            let droppedFiles: FilePathList = LoadDroppedFiles();
-            println!("File Dropped\n");
+            if IsMouseButtonPressed(MOUSE_BUTTON_LEFT as i32) && isMouseOverRectangle(helpButton) {
+                showHelp = !showHelp;
+            }
 
-            if droppedFiles.count > 0 {
-                let file_path = droppedFiles.paths.wrapping_add(0);
-                println!("{}", String::from(droppedFiles.paths.wrapping_add(0)));
-                StopMusicStream(music);
-                UnloadMusicStream(music);
-                music = LoadMusicStream(CString::new(file_path).expect("CString new failed").as_ptr());
-                PlayMusicStream(music);
+            if IsKeyPressed(KEY_UP as i32) {
+                currentVolume += 0.1;
+                if currentVolume > 1.0 {
+                    currentVolume = 1.0;
+                }
                 SetMusicVolume(music, currentVolume);
-                AttachAudioStreamProcessor(music.stream, callback);
+                isMuted = false;
             }
-            UnloadDroppedFiles(droppedFiles);
-        }
 
-        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && isMouseOverRectangle(infoButton){
-            showInfo = !showInfo;
-        }
-
-        if IsKeyPressed(KEY_F){
-            PauseMusicStream(music);
-            OpenFileDialog();
-            if is_song_file(&selected_song){
-                UnloadMusicStream(music);
-                music = LoadMusicStream(CString::new(selected_song).expect("CString new failed").as_ptr());
-                PlayMusicStream(music);
+            if IsKeyPressed(KEY_DOWN as i32) {
+                currentVolume -= 0.1;
+                if currentVolume < 0.0 {
+                    currentVolume = 0.0;
+                }
                 SetMusicVolume(music, currentVolume);
-                AttachAudioStreamProcessor(music.stream, callback);
+                isMuted = false;
             }
-            else{
-                println!("Invalid file format. Please select a valid audio file\n");
-                ResumeMusicStream(music);
+
+            if IsKeyPressed(KEY_V as i32) {
+                SwitchVizualizationModeForward();
             }
-        }
 
-        if IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && isMouseOverRectangle(helpButton){
-            showHelp = !showHelp;
-        }
-
-        if IsKeyPressed(KEY_UP){
-            currentVolume += 0.1;
-            if currentVolume > 1.0{
-                currentVolume = 1.0;
+            if IsKeyPressed(KEY_B as i32) {
+                SwitchVizualizationModeBackward();
             }
-            SetMusicVolume(music, currentVolume);
-            isMuted = false;
-        }
-        
-        if IsKeyPressed(KEY_DOWN){
-            currentVolume -= 0.1;
-            if currentVolume < 0.0{
-                currentVolume = 0.0;
+
+            if IsKeyPressed(KEY_M as i32) {
+                isMuted = !isMuted;
+                if isMuted {
+                    SetMusicVolume(music, 0.0);
+                } else {
+                    SetMusicVolume(music, currentVolume);
+                }
             }
-            SetMusicVolume(music, currentVolume);
-            isMuted = false;
-        }
 
-        if IsKeyPressed(KEY_V){
-            SwitchVizualizationModeForward();
-        }
-        
-        if IsKeyPressed(KEY_B){
-            SwitchVizualizationModeBackward();
-        }
-        
-        if IsKeyPressed(KEY_M){
-            isMuted = !isMuted;
-            if isMuted{
-                SetMusicVolume(music, 0.0);
+            BeginDrawing();
+            ClearBackground(BLACK);
+
+            BeginTextureMode(overlay);
+            DrawRectangle(0, 0, screenWidth, screenHeight, ColorAlpha(GRAY, 0.2));
+            EndTextureMode();
+            DrawTextureRec(
+                overlay.texture,
+                Rectangle {
+                    x: 0.0,
+                    y: 0.0,
+                    width: screenWidth as f32,
+                    height: screenHeight as f32,
+                },
+                Vector2 { x: 0.0, y: 0.0 },
+                WHITE,
+            );
+
+            let mut m: usize = 0;
+            let mut step: f32 = 1.06;
+            let mut i: f32 = 20.0; // Declare i as a mutable f32
+
+            while i < N as f32 {
+                m += 1; // Increment m
+                i *= step; // Update i
             }
-            else{
-                SetMusicVolume(music, currentVolume);
+
+            let cell_width: f32 = screenWidth as f32 / m as f32;
+            handleVisualization(cell_width, screenHeight, screenWidth, m);
+
+            let mainTitle = String::from("Rusty rAVen");
+            let titleSize: Vector2 = MeasureTextEx(
+                font,
+                CString::new(mainTitle.clone())
+                    .expect("CString new failed")
+                    .as_ptr(),
+                40.0,
+                2.0,
+            );
+            DrawTextEx(
+                font,
+                CString::new(mainTitle.clone())
+                    .expect("CString new failed")
+                    .as_ptr(),
+                Vector2 {
+                    x: (screenWidth / 2) as f32 - titleSize.x / 2.0,
+                    y: 20.0,
+                },
+                40.0,
+                2.0,
+                GRUVBOX_BLUE,
+            );
+
+            let mut totalDuration = GetMusicTimeLength(music) as f32;
+            let mut currentDuration = GetMusicTimePlayed(music) as f32;
+            let time_buffer = format!("{:.2} / {:.2} sec", currentDuration, totalDuration);
+            let details_size: Vector2 = MeasureTextEx(
+                font,
+                CString::new(time_buffer.clone())
+                    .expect("CString new failed")
+                    .as_ptr(),
+                20.0,
+                1.0,
+            );
+            DrawRectangle(
+                0,
+                screenHeight - 40,
+                screenWidth,
+                40,
+                ColorAlpha(BLACK, 0.7),
+            );
+            DrawTextEx(
+                font,
+                CString::new(time_buffer.clone())
+                    .expect("CString new failed")
+                    .as_ptr(),
+                Vector2 {
+                    x: screenWidth as f32,
+                    y: screenHeight as f32 - 30.0,
+                },
+                20.0,
+                1.0,
+                WHITE,
+            );
+
+            // Draw play/pause status
+            let status = if IsMusicStreamPlaying(music) {
+                "Playing"
+            } else {
+                "Paused"
+            };
+            DrawTextEx(
+                font,
+                CString::new(status.clone())
+                    .expect("CString new failed")
+                    .as_ptr(),
+                Vector2 { x: 10.0, y: 10.0 },
+                20.0,
+                1.0,
+                if IsMusicStreamPlaying(music) {
+                    GRUVBOX_GREEN
+                } else {
+                    GRUVBOX_RED
+                },
+            );
+
+            // Draw volume level
+            let volume_buffer = format!("Volume: {:.0}%", currentVolume * 100.0);
+            DrawTextEx(
+                font,
+                CString::new(volume_buffer.clone())
+                    .expect("CString new failed")
+                    .as_ptr(),
+                Vector2 { x: 10.0, y: 40.0 },
+                20.0,
+                1.0,
+                GRUVBOX_AQUA,
+            );
+
+            // Draw info button
+            DrawRectangleRec(
+                infoButton,
+                if showInfo {
+                    GRUVBOX_ORANGE
+                } else {
+                    GRUVBOX_PURPLE
+                },
+            );
+            DrawTextEx(
+                font,
+                CString::new("INFO").expect("CString new failed").as_ptr(),
+                Vector2 {
+                    x: infoButton.x + 10.0,
+                    y: infoButton.y + 10.0,
+                },
+                20.0,
+                1.0,
+                WHITE,
+            );
+
+            // Draw help button
+            DrawRectangleRec(
+                helpButton,
+                if showHelp {
+                    GRUVBOX_ORANGE
+                } else {
+                    GRUVBOX_PURPLE
+                },
+            );
+            DrawTextEx(
+                font,
+                CString::new("?").expect("CString new failed").as_ptr(),
+                Vector2 {
+                    x: helpButton.x + 15.0,
+                    y: helpButton.y + 5.0,
+                },
+                20.0,
+                1.0,
+                WHITE,
+            );
+
+            // Display info box if toggled
+            if showInfo {
+                DrawSpaceTheme(font, music);
             }
+
+            if showHelp {
+                println!("Work in Progress");
+            }
+            EndDrawing();
         }
 
-        BeginDrawing();
-        ClearBackground(BLACK);
-
-        BeginTextureMode(*overlay);
-        DrawRectangle(0, 0, screenWidth, screenHeight, ColorAlpha(GRAY, 0.2));
-        EndTextureMode();
-        DrawTextureRec(overlay.texture, Rectangle { x: 0.0, y: 0.0, width: screenWidth as f32, height: screenHeight as f32}, Vector2 { x: 0.0, y: 0.0 }, WHITE);
-
-        let mut m: usize = 0;
-        let mut step: f32 = 1.06;
-
-        for (i = 20.0; i < N; i *= step){
-            m++;
-        }
-
-        let cell_width: f32 = screenWidth as f32 / m as f32;
-        handleVisualization(cell_width, screenHeight, screenWidth, m);
-        
-        let mainTitle = String::from("Rusty rAVen");
-        let titleSize: Vector2 = MeasureTextEx(font, CString::new(mainTitle).expect("CString new failed").as_ptr(), 40.0, 2.0);
-        DrawTextEx(font, CString::new(mainTitle).expect("CString new failed").as_ptr(), Vector2 { x: screenWidth/2 as f32 - titleSize.x/2.0, y: 20.0 }, 40.0, 2.0, GRUVBOX_BLUE);
-        
-        let mut totalDuration = GetMusicTimeLength(music) as f32;
-        let mut currentDuration = GetMusicTimePlayed(music) as f32;
-        let time_buffer = format!("{:.2} / {:.2} sec", current_time, total_duration);
-let details_size: Vector2 = measure_text_ex(&font, &time_buffer, 20.0, 1.0);
-DrawRectangle(0, screen_height - 40, screen_width, 40, ColorAlpha(Color::BLACK, 0.7));
-DrawTextEx(
-    &font,
-    &time_buffer,
-    Vector2 {
-        x: screen_width as f32 / 2.0 - details_size.x / 2.0,
-        y: screen_height as f32 - 30.0,
-    },
-    20.0,
-    1.0,
-    Color::WHITE,
-);
-
-// Draw play/pause status
-let status = if IsMusicStreamPlaying(&music) { "Playing" } else { "Paused" };
-DrawTextEx(
-    &font,
-    status,
-    Vector2::new(10.0, 10.0),
-    20.0,
-    1.0,
-    if IsMusicStreamPlaying(&music) {
-        GRUVBOX_GREEN
-    } else {
-        GRUVBOX_RED
-    },
-);
-
-// Draw volume level
-let volume_buffer = format!("Volume: {:.0}%", current_volume * 100.0);
-DrawTextEx(&font, &volume_buffer, Vector2::new(10.0, 40.0), 20.0, 1.0, GRUVBOX_AQUA);
-
-// Draw info button
-DrawRectangleRec(
-    info_button,
-    if show_info { GRUVBOX_ORANGE } else { GRUVBOX_PURPLE },
-);
-DrawTextEx(
-    &font,
-    "INFO",
-    Vector2::new(info_button.x + 10.0, info_button.y + 10.0),
-    20.0,
-    1.0,
-    Color::WHITE,
-);
-
-// Draw help button
-DrawRectangleRec(
-    help_button,
-    if show_help { GRUVBOX_ORANGE } else { GRUVBOX_PURPLE },
-);
-DrawTextEx(
-    &font,
-    "?",
-    Vector2::new(help_button.x + 15.0, help_button.y + 5.0),
-    20.0,
-    1.0,
-    Color::WHITE,
-);
-
-// Display info box if toggled
-if show_info {
-    DrawSpaceTheme(&font, &music, &metadata);
-}
-
-if show_help {
-    DrawHelpBox(show_help, &font, screen_height, screen_width);
-}
-        EndDrawing(); 
+        UnloadMusicStream(music);
+        CloseAudioDevice();
+        CloseWindow();
     }
-
-    UnloadMusicStream(music);
-    CloseAudioDevice();
-    CloseWindow();
-
 }
