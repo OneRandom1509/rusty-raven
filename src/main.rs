@@ -1,39 +1,28 @@
-#[macro_use]
-extern crate lazy_static;
-
 extern crate gtk;
 use gtk::prelude::*;
 use gtk::{FileChooserAction, FileChooserDialog, ResponseType, Window};
-use magic::*;
 use num_complex::*;
-use num_integer::*;
 use raylib::consts::MouseButton::*;
 use raylib::ffi::{
     AttachAudioStreamProcessor, BeginDrawing, BeginTextureMode, CheckCollisionPointRec,
-    ClearBackground, CloseAudioDevice, CloseWindow, Color, ColorAlpha, DrawCircle,
-    DrawCircleGradient, DrawCircleLines, DrawLineEx, DrawRectangle, DrawRectangleLines,
-    DrawRectangleRec, DrawTextEx, DrawTextureRec, EndDrawing, EndTextureMode, FilePathList, Font,
-    GetMousePosition, GetMusicTimeLength, GetMusicTimePlayed, InitAudioDevice, InitWindow,
-    IsFileDropped, IsKeyPressed, IsMouseButtonPressed, IsMusicStreamPlaying, KeyboardKey::*,
-    LoadDroppedFiles, LoadFontEx, LoadMusicStream, LoadRenderTexture, MeasureTextEx, Music,
-    PauseMusicStream, PlayMusicStream, Rectangle, RenderTexture2D, ResumeMusicStream,
-    SetMusicVolume, SetTargetFPS, StopMusicStream, UnloadDroppedFiles, UnloadMusicStream,
-    UpdateMusicStream, Vector2, WindowShouldClose,
+    ClearBackground, CloseAudioDevice, CloseWindow, ColorAlpha, DrawCircle, DrawCircleGradient,
+    DrawCircleLines, DrawLineEx, DrawRectangle, DrawRectangleLines, DrawRectangleRec, DrawTextEx,
+    DrawTextureRec, EndDrawing, EndTextureMode, FilePathList, Font, GetMousePosition,
+    GetMusicTimeLength, GetMusicTimePlayed, InitAudioDevice, InitWindow, IsFileDropped,
+    IsKeyPressed, IsMouseButtonPressed, IsMusicStreamPlaying, KeyboardKey::*, LoadDroppedFiles,
+    LoadFontEx, LoadMusicStream, LoadRenderTexture, MeasureTextEx, Music, PauseMusicStream,
+    PlayMusicStream, Rectangle, RenderTexture2D, ResumeMusicStream, SetMusicVolume, SetTargetFPS,
+    StopMusicStream, UnloadDroppedFiles, UnloadMusicStream, UpdateMusicStream, Vector2,
+    WindowShouldClose,
 };
-use raylib::prelude::*;
 use rsmpeg::ffi::{
     av_dict_get, avformat_close_input, avformat_find_stream_info, avformat_open_input,
     AVDictionaryEntry, AVFormatContext,
 };
 use rust_math::trigonometry::deg2rad;
 use std::f32::consts::PI;
-use std::f32::*;
 use std::ffi::{CStr, CString};
-use std::mem::size_of;
 
-fn array_len<T>(xs: &[T]) -> usize {
-    xs.len()
-}
 const N: usize = 1 << 13;
 // Color Palette for Gruvbox
 // lazy static is used to initialize the static variables only once at runtime
@@ -164,9 +153,6 @@ struct MusicMetadata {
 }
 
 // Global Variables
-static mut freqs: [f32; N] = [0.0; N];
-static mut global_frames: [f32; 4800] = [0.0; 4800];
-static mut global_frames_count: usize = 0;
 static mut input: [f32; N] = [0.0; N];
 static mut output: [Complex<f32>; N] = [Complex::new(0.0, 0.0); N];
 
@@ -208,8 +194,8 @@ fn fft(inp: &[f32], stride: usize, out: &mut [Complex32], n: usize) {
 }
 
 fn amp(z: Complex32) -> f32 {
-    let a = (z.re).abs();
-    let b = (z.im);
+    let a = z.re.abs();
+    let b = z.im;
     if a < b {
         a
     } else {
@@ -696,7 +682,6 @@ fn main() {
         std::assert!(music.stream.channels == 2);
 
         let mut currentVolume: f32 = 0.8;
-        let mut lastVolume: f32 = currentVolume;
         let mut isMuted: bool = false;
 
         SetMusicVolume(music, currentVolume);
@@ -704,18 +689,16 @@ fn main() {
         AttachAudioStreamProcessor(music.stream, Some(callback));
 
         // Create a CString for the file path
-        let mut font_path = CString::new("resources/fonts/monogram.ttf").expect("CString failed");
+        let font_path = CString::new("resources/fonts/monogram.ttf").expect("CString failed");
 
         // Load the font using the correct arguments
-        let mut font = unsafe {
-            LoadFontEx(
-                font_path.as_ptr(),   // Pass the C string pointer
-                24,                   // Font size
-                std::ptr::null_mut(), // No custom characters
-                0,                    // No custom glyph count
-            )
-        };
-        let mut overlay: RenderTexture2D = LoadRenderTexture(screenWidth, screenHeight);
+        let font = LoadFontEx(
+            font_path.as_ptr(),   // Pass the C string pointer
+            24,                   // Font size
+            std::ptr::null_mut(), // No custom characters
+            0,                    // No custom glyph count
+        );
+        let overlay: RenderTexture2D = LoadRenderTexture(screenWidth, screenHeight);
 
         let infoButton = Rectangle {
             x: (screenWidth - 100) as f32,
@@ -732,7 +715,7 @@ fn main() {
         let mut showInfo: bool = false;
         let mut showHelp: bool = false;
 
-        while (!WindowShouldClose()) {
+        while !WindowShouldClose() {
             UpdateMusicStream(music);
 
             if IsKeyPressed(KEY_SPACE as i32) {
@@ -752,26 +735,24 @@ fn main() {
                 let droppedFiles: FilePathList = LoadDroppedFiles();
                 println!("File Dropped\n");
 
-                unsafe {
-                    let file_path_ptr = *droppedFiles.paths;
-                    let c_str = CStr::from_ptr(file_path_ptr.clone());
-                    let file_path = c_str.to_string_lossy().into_owned();
+                let file_path_ptr = *droppedFiles.paths;
+                let c_str = CStr::from_ptr(file_path_ptr.clone());
+                let file_path = c_str.to_string_lossy().into_owned();
 
-                    println!("Dropped File Path: {}", file_path);
+                println!("Dropped File Path: {}", file_path);
 
-                    // Load new music stream
-                    StopMusicStream(music);
-                    UnloadMusicStream(music);
+                // Load new music stream
+                StopMusicStream(music);
+                UnloadMusicStream(music);
 
-                    let c_string = CString::new(file_path.clone()).expect("CString failed");
-                    music = LoadMusicStream(c_string.as_ptr());
+                let c_string = CString::new(file_path.clone()).expect("CString failed");
+                music = LoadMusicStream(c_string.as_ptr());
 
-                    PlayMusicStream(music);
-                    SetMusicVolume(music, currentVolume);
+                PlayMusicStream(music);
+                SetMusicVolume(music, currentVolume);
 
-                    // Attach the callback processor
-                    AttachAudioStreamProcessor(music.stream, Some(callback));
-                }
+                // Attach the callback processor
+                AttachAudioStreamProcessor(music.stream, Some(callback));
                 UnloadDroppedFiles(droppedFiles);
             }
 
@@ -890,8 +871,8 @@ fn main() {
                 GRUVBOX_BLUE,
             );
 
-            let mut totalDuration = GetMusicTimeLength(music) as f32;
-            let mut currentDuration = GetMusicTimePlayed(music) as f32;
+            let totalDuration = GetMusicTimeLength(music) as f32;
+            let currentDuration = GetMusicTimePlayed(music) as f32;
             let time_buffer = format!("{:.2} / {:.2} sec", currentDuration, totalDuration);
             let details_size: Vector2 = MeasureTextEx(
                 font,
