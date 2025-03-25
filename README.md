@@ -1,4 +1,4 @@
-# Rusty Raven
+# Rusty rAVen
 
 A rust implementation of https://github.com/nots1dd/raven
 
